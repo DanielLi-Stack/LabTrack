@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+enum Role {
+  MEMBER
+  MANAGER
+  ADMIN
+}
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+enum EquipmentCondition {
+  NORMAL
+  MAINTENANCE
+  DAMAGED
+  LOST
+  RETIRED
+}
+enum OwnershipType {
+  LAB
+  PERSONAL
+  OTHER
+}
+enum LoanStatus {
+  REQUESTED
+  APPROVED
+  ACTIVE
+  RETURN_PENDING
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+enum CloseReason {
+  RETURNED
+  TRANSFERRED
+  ADMIN_ADJUSTMENT
+}
+enum HandoverStatus {
+  REQUESTED
+  ACCEPTED
+  PENDING_APPROVAL
+  READY_TO_RELEASE
+  RELEASED
+  COMPLETED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  DISPUTED
+}
+
+model UserProfile {
+  id String @id @default(cuid())
+  name String
+  username String @unique
+  email String? @unique
+  labGroup String?
+  role Role @default(MEMBER)
+  status UserStatus @default(ACTIVE)
+  passwordHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  custody Equipment[] @relation("Custodian")
+  loans Loan[] @relation("Borrower")
+  outgoing Handover[] @relation("Sender")
+  incoming Handover[] @relation("Receiver")
+  events EquipmentEvent[]
+  auditLogs AuditLog[]
+  @@map("user_profiles")
+}
+
+model Equipment {
+  id String @id @default(cuid())
+  assetCode String @unique
+  name String
+  category String
+  brand String?
+  model String?
+  serialNumber String?
+  ownership OwnershipType @default(LAB)
+  ownerName String?
+  custodianId String?
+  custodian UserProfile? @relation("Custodian", fields: [custodianId], references: [id], onDelete: Restrict)
+  storageLocation String?
+  condition EquipmentCondition @default(NORMAL)
+  isBorrowable Boolean @default(true)
+  approvalRequired Boolean @default(false)
+  notes String?
+  inactiveAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  accessories EquipmentAccessory[]
+  loans Loan[]
+  handovers Handover[]
+  events EquipmentEvent[]
+  attachments Attachment[]
+  @@index([category])
+  @@map("equipment")
+}
+
+model EquipmentAccessory {
+  id String @id @default(cuid())
+  equipmentId String
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Restrict)
+  name String
+  quantity Int @default(1)
+  @@unique([equipmentId, name])
+  @@map("equipment_accessories")
+}
+
+model Loan {
+  id String @id @default(cuid())
+  equipmentId String
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Restrict)
+  borrowerId String
+  borrower UserProfile @relation("Borrower", fields: [borrowerId], references: [id], onDelete: Restrict)
+  purpose String
+  requestedAt DateTime @default(now())
+  expectedReturnAt DateTime
+  checkedOutAt DateTime?
+  returnRequestedAt DateTime?
+  actualReturnAt DateTime?
+  approvedById String?
+  checkedOutById String?
+  receivedById String?
+  status LoanStatus
+  closeReason CloseReason?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  outgoingHandovers Handover[] @relation("FromLoan")
+  incomingHandovers Handover[] @relation("ToLoan")
+  @@index([borrowerId, status])
+  @@index([equipmentId, createdAt])
+  @@map("loans")
+}
+
+model Handover {
+  id String @id @default(cuid())
+  equipmentId String
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Restrict)
+  fromUserId String
+  fromUser UserProfile @relation("Sender", fields: [fromUserId], references: [id], onDelete: Restrict)
+  toUserId String
+  toUser UserProfile @relation("Receiver", fields: [toUserId], references: [id], onDelete: Restrict)
+  fromLoanId String
+  fromLoan Loan @relation("FromLoan", fields: [fromLoanId], references: [id], onDelete: Restrict)
+  toLoanId String? @unique
+  toLoan Loan? @relation("ToLoan", fields: [toLoanId], references: [id], onDelete: Restrict)
+  requestedAt DateTime @default(now())
+  acceptedAt DateTime?
+  approvedAt DateTime?
+  releasedAt DateTime?
+  receivedAt DateTime?
+  completedAt DateTime?
+  expectedTransferAt DateTime?
+  expectedReturnAt DateTime
+  status HandoverStatus
+  equipmentCondition EquipmentCondition @default(NORMAL)
+  accessoriesCheck Json?
+  reason String?
+  notes String?
+  rejectionReason String?
+  disputeReason String?
+  resolvedById String?
+  resolutionReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([toUserId, status])
+  @@index([equipmentId, requestedAt])
+  @@map("handovers")
+}
+
+model EquipmentEvent {
+  id String @id @default(cuid())
+  equipmentId String
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Restrict)
+  actorId String?
+  actor UserProfile? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  type String
+  detail Json?
+  createdAt DateTime @default(now())
+  @@index([equipmentId, createdAt])
+  @@map("equipment_events")
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+  actorId String?
+  actor UserProfile? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  action String
+  subjectType String
+  subjectId String
+  before Json?
+  after Json?
+  reason String?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Attachment {
+  id String @id @default(cuid())
+  equipmentId String
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Restrict)
+  storageKey String @unique
+  fileName String
+  mimeType String
+  size Int
+  kind String
+  uploadedById String
+  createdAt DateTime @default(now())
+  @@index([equipmentId, kind])
+  @@map("attachments")
+}
+
+model SystemSetting {
+  key String @id
+  value Json
+  updatedAt DateTime @updatedAt
+  @@map("system_settings")
+}
